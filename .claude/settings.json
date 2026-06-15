@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm install)",
+      "Bash(ls:*)",
+      "Bash(cat:*)"
+    ]
+  }
+}
