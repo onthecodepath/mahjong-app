@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { discard, drawFromWall } from "./moves";
+import { discard, drawFromWall, passClaim } from "./moves";
 import type { GameState } from "./game";
 import type { Tile } from "./tiles";
 
@@ -21,19 +21,25 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
 describe("discard", () => {
   const targetTile: Tile = { kind: "wind", wind: "east" };
 
-  it("moves the tile from hand to that seat's discard pile", () => {
+  it("removes the tile from hand but does not commit it to discards yet", () => {
     const state = makeState();
     const result = discard(state, 0, targetTile);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.state.hands[0]).toHaveLength(13);
-    expect(result.state.discards[0]).toEqual([targetTile]);
+    // The tile is in the claim phase, not in the discard pile.
+    expect(result.state.discards[0]).toEqual([]);
   });
 
-  it("advances to the next seat in draw phase", () => {
+  it("transitions to the claim phase with the discarded tile in limbo", () => {
     const result = discard(makeState(), 0, targetTile);
     if (!result.ok) throw new Error("expected ok");
-    expect(result.state.phase).toEqual({ kind: "draw", seat: 1 });
+    expect(result.state.phase).toEqual({
+      kind: "claim",
+      discardSeat: 0,
+      tile: targetTile,
+      intents: {},
+    });
   });
 
   it("rejects when the phase is not 'act'", () => {
@@ -143,5 +149,71 @@ describe("drawFromWall", () => {
     drawFromWall(state, 0);
     expect(state.wall).toEqual(beforeWall);
     expect(state.hands[0]).toEqual(beforeHand);
+  });
+});
+
+describe("passClaim", () => {
+  const limboTile: Tile = { kind: "wind", wind: "east" };
+
+  function claimState(overrides: Partial<GameState> = {}): GameState {
+    const dummy: Tile = { kind: "suited", suit: "circles", value: 5 };
+    return {
+      hands:    [Array.from({ length: 13 }, () => ({ ...dummy })), [], [], []],
+      bonus:    [[], [], [], []],
+      discards: [[], [], [], []],
+      melds:    [[], [], [], []],
+      wall:     [],
+      phase:    { kind: "claim", discardSeat: 0, tile: limboTile, intents: {} },
+      ...overrides,
+    };
+  }
+
+  it("records a pass intent for the claiming seat", () => {
+    const result = passClaim(claimState(), 1);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.state.phase).toEqual({
+      kind: "claim",
+      discardSeat: 0,
+      tile: limboTile,
+      intents: { 1: { kind: "pass" } },
+    });
+    // Tile is not yet in discards
+    expect(result.state.discards[0]).toEqual([]);
+  });
+
+  it("commits the tile and advances to next draw after all 3 non-discarders pass", () => {
+    let state = claimState();
+    for (const seat of [1, 2, 3] as const) {
+      const r = passClaim(state, seat);
+      if (!r.ok) throw new Error(`pass ${seat} failed`);
+      state = r.state;
+    }
+    expect(state.discards[0]).toEqual([limboTile]);
+    expect(state.phase).toEqual({ kind: "draw", seat: 1 });
+  });
+
+  it("rejects when the phase is not 'claim'", () => {
+    const state = claimState({ phase: { kind: "draw", seat: 0 } });
+    const result = passClaim(state, 1);
+    expect(result).toEqual({ ok: false, error: { code: "wrong_phase", expected: "claim" } });
+  });
+
+  it("rejects when the discarder tries to pass on their own discard", () => {
+    const result = passClaim(claimState(), 0);
+    expect(result).toEqual({ ok: false, error: { code: "discarder_cannot_claim" } });
+  });
+
+  it("rejects when the seat has already declared an intent", () => {
+    const first = passClaim(claimState(), 1);
+    if (!first.ok) throw new Error("expected ok");
+    const second = passClaim(first.state, 1);
+    expect(second).toEqual({ ok: false, error: { code: "already_declared" } });
+  });
+
+  it("does not mutate the original state", () => {
+    const state = claimState();
+    const beforePhase = JSON.parse(JSON.stringify(state.phase));
+    passClaim(state, 1);
+    expect(state.phase).toEqual(beforePhase);
   });
 });

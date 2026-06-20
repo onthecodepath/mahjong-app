@@ -1,13 +1,15 @@
 import type { Tile } from "./tiles";
 import type { Seat } from "./deal";
-import type { GameState } from "./game";
+import type { GameState, ClaimIntent } from "./game";
 import { tilesEqual, isBonus } from "./tiles";
 
 export type MoveError =
-  | { code: "wrong_phase"; expected: "draw" | "act" }
+  | { code: "wrong_phase"; expected: "draw" | "act" | "claim" }
   | { code: "not_your_turn" }
   | { code: "tile_not_in_hand" }
-  | { code: "wall_empty" };
+  | { code: "wall_empty" }
+  | { code: "discarder_cannot_claim" }
+  | { code: "already_declared" };
 
 export type MoveResult<T> =
   | { ok: true;  state: T }
@@ -38,17 +40,57 @@ export function discard(
   const newHands = [...state.hands] as GameState["hands"];
   newHands[seat] = newHand;
 
-  const newDiscards = [...state.discards] as GameState["discards"];
-  newDiscards[seat] = [...state.discards[seat], tile];
-
+  // The tile is NOT added to the discard pile yet. It lives in the claim
+  // phase until the window resolves: if any seat claims it (pong/kong/chow/hu)
+  // it goes to their meld; if all 3 non-discarders pass it goes to discards.
   return {
     ok: true,
     state: {
       ...state,
       hands: newHands,
+      phase: { kind: "claim", discardSeat: seat, tile, intents: {} },
+    },
+  };
+}
+
+export function passClaim(state: GameState, seat: Seat): MoveResult<GameState> {
+  if (state.phase.kind !== "claim") {
+    return { ok: false, error: { code: "wrong_phase", expected: "claim" } };
+  }
+  if (state.phase.discardSeat === seat) {
+    return { ok: false, error: { code: "discarder_cannot_claim" } };
+  }
+  if (state.phase.intents[seat] !== undefined) {
+    return { ok: false, error: { code: "already_declared" } };
+  }
+
+  const newIntents: Partial<Record<Seat, ClaimIntent>> = {
+    ...state.phase.intents,
+    [seat]: { kind: "pass" },
+  };
+
+  // Window still open: other seats haven't responded yet.
+  if (Object.keys(newIntents).length < 3) {
+    return {
+      ok: true,
+      state: { ...state, phase: { ...state.phase, intents: newIntents } },
+    };
+  }
+
+  // All 3 non-discarders submitted. Step 2 only accepts "pass" intents, so
+  // the discard commits to the pile and play advances to the next seat.
+  // Step 3 will add priority resolution for pong/kong/chow/hu.
+  const discardSeat = state.phase.discardSeat;
+  const tile = state.phase.tile;
+  const newDiscards = [...state.discards] as GameState["discards"];
+  newDiscards[discardSeat] = [...state.discards[discardSeat], tile];
+
+  return {
+    ok: true,
+    state: {
+      ...state,
       discards: newDiscards,
-      // TODO: transition to "claim" phase when meld claims are added.
-      phase: { kind: "draw", seat: NEXT_SEAT[seat] },
+      phase: { kind: "draw", seat: NEXT_SEAT[discardSeat] },
     },
   };
 }
