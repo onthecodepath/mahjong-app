@@ -10,17 +10,21 @@ Location: `packages/shared/`
 - [x] Tile types (suited, wind, dragon, flower, season) with `tileId`, `tilesEqual`, `isBonus`
 - [x] Wall builder (144 tiles) + Fisher-Yates shuffle with seedable rng
 - [x] Dealing (two-phase: deal hands first, then replacement ceremony for bonus tiles)
-- [x] Game state shape with discriminated-union `Phase` (`draw` | `act`)
-- [x] Discard move
+- [x] Game state shape with discriminated-union `Phase` (`draw` | `act` | `claim`)
+- [x] `Meld` and `KongSource` types, `melds` field on `GameState`
+- [x] `ClaimIntent` type (pass/hu/kong/pong/chow shapes declared, only pass wired up)
+- [x] Discard move (transitions to claim phase with tile in limbo)
 - [x] Draw from wall (with bonus replacement from back of wall)
+- [x] `passClaim` move (records pass intent, resolves when all 3 non-discarders submit)
 - [x] Win detection for standard 4 sets + 1 pair (chicken hand)
 
 ### Next
-- [ ] Meld claims (pong / kong / chow) with claim window phase
-- [ ] Exposed melds added to `GameState`
+- [ ] Claim moves: `claimPong`, `claimKong`, `claimChow` (declare intent for non-pass)
+- [ ] Priority resolution when claim intents conflict (hu > kong/pong > chow)
+- [ ] `resolveClaimWindow` for server-initiated timeout (treats missing intents as pass)
 - [ ] Concealed kong (self-drawn act-phase move)
 - [ ] Added kong (act-phase move, promoting an exposed pong)
-- [ ] Hu (win declaration)
+- [ ] Hu (win declaration, both self-drawn and claimed)
 - [ ] Extend `isWinningHand` to consider exposed melds
 - [ ] Wall-empty game end (currently surfaces as a `wall_empty` error)
 
